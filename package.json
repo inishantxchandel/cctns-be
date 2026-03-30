@@ -25,7 +25,8 @@
     "migration:create": "npm run typeorm -- migration:create",
     "seed:mock-users": "TS_NODE_PROJECT=tsconfig.typeorm.json ts-node -r tsconfig-paths/register src/database/scripts/seed-mock-users.ts",
     "seed:issue-types": "TS_NODE_PROJECT=tsconfig.typeorm.json ts-node -r tsconfig-paths/register src/database/scripts/seed-issue-types.ts",
-    "seed:districts-police-stations": "TS_NODE_PROJECT=tsconfig.typeorm.json ts-node -r tsconfig-paths/register src/database/scripts/seed-districts-police-stations.ts"
+    "seed:districts-police-stations": "TS_NODE_PROJECT=tsconfig.typeorm.json ts-node -r tsconfig-paths/register src/database/scripts/seed-districts-police-stations.ts",
+    "seed:mock-tickets": "TS_NODE_PROJECT=tsconfig.typeorm.json ts-node -r tsconfig-paths/register src/database/scripts/seed-mock-tickets.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",

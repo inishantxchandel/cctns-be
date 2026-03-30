@@ -14,4 +14,16 @@ export default new DataSource({
   entities: ['src/**/*.entity.ts'],
   migrations: ['src/database/migrations/*.ts'],
   synchronize: false,
+  ssl:
+    process.env.DB_SSL === 'true' ||
+    process.env.DB_SSL === '1' ||
+    process.env.DB_SSL === 'yes' ||
+    (process.env.DB_HOST ?? '').endsWith('render.com')
+      ? {
+          rejectUnauthorized:
+            process.env.DB_SSL_REJECT_UNAUTHORIZED === undefined
+              ? false
+              : process.env.DB_SSL_REJECT_UNAUTHORIZED === 'true',
+        }
+      : undefined,
 });

@@ -1,6 +1,7 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
+import { User } from '../users/entities/user.entity';
 import { UsersService } from '../users/users.service';
 import { LoginDto } from './dto/login.dto';
 import { JwtPayload } from './interfaces/jwt-payload.interface';
@@ -11,6 +12,26 @@ export class AuthService {
     private readonly usersService: UsersService,
     private readonly jwtService: JwtService,
   ) {}
+
+  private toAuthUserResponse(user: User) {
+    return {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      phone: user.phone,
+      district: user.district
+        ? { id: user.district.id, name: user.district.name }
+        : null,
+    };
+  }
+
+  async me(userId: string) {
+    const user = await this.usersService.findByIdWithDistrict(userId);
+    if (!user) {
+      throw new UnauthorizedException();
+    }
+    return this.toAuthUserResponse(user);
+  }
 
   async login(dto: LoginDto) {
     const email = dto.email.toLowerCase().trim();
@@ -35,11 +56,7 @@ export class AuthService {
 
     return {
       access_token,
-      user: {
-        id: user.id,
-        email: user.email,
-        role: user.role,
-      },
+      user: this.toAuthUserResponse(user),
     };
   }
 }

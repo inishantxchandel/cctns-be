@@ -9,8 +9,10 @@ import { AuthModule } from './auth/auth.module';
 import { DistrictsModule } from './districts/districts.module';
 import { IssueTypesModule } from './issue-types/issue-types.module';
 import { PoliceStationsModule } from './police-stations/police-stations.module';
+import { ReferenceModule } from './reference/reference.module';
 import { TicketsModule } from './tickets/tickets.module';
 import { UsersModule } from './users/users.module';
+import { AnalyticsModule } from './analytics/analytics.module';
 
 @Module({
   imports: [
@@ -28,7 +30,9 @@ import { UsersModule } from './users/users.module';
     DistrictsModule,
     PoliceStationsModule,
     IssueTypesModule,
+    ReferenceModule,
     TicketsModule,
+    AnalyticsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

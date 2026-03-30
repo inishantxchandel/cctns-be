@@ -13,6 +13,8 @@ import { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/enums/user-role.enum';
 import { CreateTicketCommentDto } from './dto/create-ticket-comment.dto';
 import { CreateTicketDto } from './dto/create-ticket.dto';
+import { ListTicketCommentsQueryDto } from './dto/list-ticket-comments-query.dto';
+import { UpdateTicketTeamDto } from './dto/update-ticket-team.dto';
 import { ListTicketsQueryDto } from './dto/list-tickets-query.dto';
 import { TicketComment } from './entities/ticket-comment.entity';
 import { TicketLog } from './entities/ticket-log.entity';
@@ -21,6 +23,16 @@ import { TicketStatus } from './enums/ticket-status.enum';
 
 export type PaginatedTickets = {
   data: Ticket[];
+  meta: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  };
+};
+
+export type PaginatedTicketComments = {
+  data: TicketComment[];
   meta: {
     total: number;
     page: number;
@@ -168,6 +180,56 @@ export class TicketsService {
     return withRelations ?? ticket;
   }
 
+  async updateTeam(
+    ticketId: string,
+    dto: UpdateTicketTeamDto,
+    actorId: string,
+  ): Promise<Ticket> {
+    const ticket = await this.ticketsRepo.findOne({ where: { id: ticketId } });
+    if (!ticket) {
+      throw new NotFoundException('Ticket not found');
+    }
+
+    const previous = ticket.teamAssigned;
+    if (previous === dto.teamAssigned) {
+      const unchanged = await this.ticketsRepo.findOne({
+        where: { id: ticketId },
+        relations: [
+          'createdBy',
+          'district',
+          'policeStation',
+          'policeStation.district',
+          'issueType',
+        ],
+      });
+      return unchanged ?? ticket;
+    }
+
+    ticket.teamAssigned = dto.teamAssigned;
+    await this.ticketsRepo.save(ticket);
+
+    await this.ticketLogsRepo.insert({
+      ticket: { id: ticketId },
+      actor: { id: actorId },
+      action: 'TEAM_CHANGED',
+      details: `Team assigned changed from "${previous}" to "${dto.teamAssigned}"`,
+      metadata: { previousTeam: previous, newTeam: dto.teamAssigned },
+    });
+
+    const withRelations = await this.ticketsRepo.findOne({
+      where: { id: ticketId },
+      relations: [
+        'createdBy',
+        'district',
+        'policeStation',
+        'policeStation.district',
+        'issueType',
+      ],
+    });
+
+    return withRelations ?? ticket;
+  }
+
   async addComment(
     ticketId: string,
     dto: CreateTicketCommentDto,
@@ -203,6 +265,65 @@ export class TicketsService {
     return withAuthor ?? saved;
   }
 
+  async findOneById(
+    ticketId: string,
+    userId: string,
+    role: UserRole,
+  ): Promise<Ticket> {
+    const operatingDistrictId = await this.resolveOperatingDistrictId(
+      userId,
+      role,
+    );
+
+    const qb = this.ticketsRepo
+      .createQueryBuilder('ticket')
+      .leftJoinAndSelect('ticket.createdBy', 'createdBy')
+      .leftJoinAndSelect('ticket.district', 'district')
+      .leftJoinAndSelect('ticket.policeStation', 'policeStation')
+      .leftJoinAndSelect('policeStation.district', 'policeStationDistrict')
+      .leftJoinAndSelect('ticket.issueType', 'issueType')
+      .where('ticket.id = :ticketId', { ticketId });
+
+    this.applyTicketListRoleScope(qb, userId, role, operatingDistrictId);
+
+    const ticket = await qb.getOne();
+    if (!ticket) {
+      throw new NotFoundException('Ticket not found');
+    }
+    return ticket;
+  }
+
+  async findCommentsPaginated(
+    ticketId: string,
+    query: ListTicketCommentsQueryDto,
+    userId: string,
+    role: UserRole,
+  ): Promise<PaginatedTicketComments> {
+    await this.findOneById(ticketId, userId, role);
+
+    const page = query.page ?? 1;
+    const limit = Math.min(query.limit ?? 20, 100);
+    const skip = (page - 1) * limit;
+
+    const [data, total] = await this.ticketCommentsRepo.findAndCount({
+      where: { ticket: { id: ticketId } },
+      relations: ['author'],
+      order: { createdAt: 'DESC' },
+      skip,
+      take: limit,
+    });
+
+    return {
+      data,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.max(1, Math.ceil(total / limit)),
+      },
+    };
+  }
+
   async findPaginated(
     query: ListTicketsQueryDto,
     userId: string,
@@ -212,20 +333,10 @@ export class TicketsService {
     const limit = Math.min(query.limit ?? 20, 100);
     const skip = (page - 1) * limit;
 
-    let operatingDistrictId: string | undefined;
-    if (role === UserRole.CCTNS_INCHARGE_DISTRICT) {
-      const row = await this.usersRepo
-        .createQueryBuilder('u')
-        .select('u.district_id', 'districtId')
-        .where('u.id = :id', { id: userId })
-        .getRawOne<{ districtId: string | null }>();
-      if (!row?.districtId) {
-        throw new ForbiddenException(
-          'Your account has no operating district assigned. Contact an administrator.',
-        );
-      }
-      operatingDistrictId = row.districtId;
-    }
+    const operatingDistrictId = await this.resolveOperatingDistrictId(
+      userId,
+      role,
+    );
 
     const qb = this.ticketsRepo
       .createQueryBuilder('ticket')
@@ -309,5 +420,28 @@ export class TicketsService {
       default:
         break;
     }
+  }
+
+  private async resolveOperatingDistrictId(
+    userId: string,
+    role: UserRole,
+  ): Promise<string | undefined> {
+    if (role !== UserRole.CCTNS_INCHARGE_DISTRICT) {
+      return undefined;
+    }
+
+    const row = await this.usersRepo
+      .createQueryBuilder('u')
+      .select('u.district_id', 'districtId')
+      .where('u.id = :id', { id: userId })
+      .getRawOne<{ districtId: string | null }>();
+
+    if (!row?.districtId) {
+      throw new ForbiddenException(
+        'Your account has no operating district assigned. Contact an administrator.',
+      );
+    }
+
+    return row.districtId;
   }
 }
